@@ -1,0 +1,8 @@
+# ignore comments
+# freqs in mhz
+# num cpu gpu (optional)emc
+0 1963500 1267200
+2 1785000 1075000
+3 1428000 768000
+4 1020000 460800
+# deliberately ignoring 1, modes should be optional
