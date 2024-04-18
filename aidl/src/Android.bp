@@ -30,6 +30,7 @@ cc_binary {
     srcs: [
         "service.cpp",
         "Dock.cpp",
+        "sysfs_utils.cpp",
     ],
     shared_libs: [
         "libbinder_ndk",
