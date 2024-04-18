@@ -22,12 +22,14 @@
 #include <fcntl.h>
 #include <hardware/hardware.h>
 #include <pthread.h>
+#include <cutils/uevent.h>
 #include <sys/epoll.h>
 #include <utils/Log.h>
 
 #include <fstream>
 #include <sstream>
 #include <map>
+#include <regex>
 
 #include "Dock.h"
 
@@ -37,7 +39,6 @@ namespace android {
 namespace hardware {
 namespace nintendo {
 namespace dock {
-namespace implementation {
 
 volatile bool polling;
 pthread_mutex_t mLock;
@@ -124,53 +125,104 @@ int Dock::parseConfig() {
     return 0;
 }
 
+struct data {
+    int uevent_fd;
+    Dock *dock;
+};
+
+static void uevent_event(uint32_t /*epevents*/, struct data *payload) {
+    char msg[UEVENT_MSG_LEN + 2];
+    char *cp;
+    int n;
+
+    n = uevent_kernel_multicast_recv(payload->uevent_fd, msg, UEVENT_MSG_LEN);
+    if (n <= 0)
+        return;
+    if (n >= UEVENT_MSG_LEN) /* overflow -- discard */
+        return;
+
+    msg[n] = '\0';
+    msg[n + 1] = '\0';
+    cp = msg;
+
+    while (*cp) {
+        if (std::regex_match(cp, std::regex("(add)(.*)(-partner)"))) {
+            ALOGI("USB partner event detected");
+            ALOGI("Event: %s", cp);
+            /* do shit */
+        } else if (!strncmp(cp, "DEVTYPE=typec_", strlen("DEVTYPE=typec_"))) {
+            ALOGI("Other USB event detected");
+            ALOGI("Event: %s", cp);
+            /* do shit */
+            break;
+        } /* advance to after the next \0 */
+        while (*cp++) {
+        }
+    }
+}
+
+
 /**
  * Loosely referencing https://suchprogramming.com/epoll-in-3-easy-steps/ and
  * IUsb default implementation
  */
-void *pollWork([[maybe_unused]]void *param) {
+void *pollWork(void *param) {
     ALOGI("Polling thread successfully launched\n");
-    struct epoll_event event, events[MAX_EVENTS];
-    int epoll_fd = epoll_create1(0);
+    int epoll_fd, uevent_fd;
+    struct epoll_event ev;
+    int nevents = 0;
+    struct data payload;
 
+    uevent_fd = uevent_open_socket(UEVENT_MAX_EVENTS * UEVENT_MSG_LEN, true);
+
+    if (uevent_fd < 0) {
+        ALOGE("uevent_init: uevent_open_socket failed\n");
+        return NULL;
+    }
+
+    payload.uevent_fd = uevent_fd;
+    payload.dock = (Dock *)param;
+
+    fcntl(uevent_fd, F_SETFL, O_NONBLOCK);
+
+    ev.events = EPOLLIN;
+    ev.data.ptr = (void *)uevent_event;
+
+    epoll_fd = epoll_create(UEVENT_MAX_EVENTS);
     if (epoll_fd == -1) {
-        ALOGE("Failed to create epoll file descriptor\n");
-        return NULL;
+        ALOGE("epoll_create failed; errno=%d", errno);
+        goto error;
     }
 
-    int fd = open(SYSFS_POWERSUPPLY, O_RDONLY | O_NONBLOCK);
-
-    event.events = EPOLLIN;
-    event.data.fd = fd;
-
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event)) {
-        ALOGE("Failed to add file descriptor to epoll\n");
-        close(epoll_fd);
-        return NULL;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, uevent_fd, &ev) == -1) {
+        ALOGE("epoll_ctl failed; errno=%d", errno);
+        goto error;
     }
 
-    pthread_mutex_lock(&mLock);
     while (polling) {
-        pthread_mutex_unlock(&mLock);
-        int event_count = epoll_wait(epoll_fd, events, MAX_EVENTS, 30000);
-        ALOGI("Ready events: %d\n", event_count);
+        struct epoll_event events[UEVENT_MAX_EVENTS];
 
-        for (int i = 0; i < event_count; i++) {
-            ALOGI("Reading file descriptor '%d' -- \n", events[i].data.fd);
-            char read_buffer[READ_SIZE+1];
-            size_t bytes_read = read(events[i].data.fd, read_buffer, READ_SIZE);
-            ALOGI("%zd bytes read.\n", bytes_read);
-            read_buffer[bytes_read] = '\0';
-            ALOGI("Read '%s'\n", read_buffer);
+        nevents = epoll_wait(epoll_fd, events, UEVENT_MAX_EVENTS, -1);
+        if (nevents == -1) {
+            if (errno == EINTR)
+                continue;
+            ALOGE("usb epoll_wait failed; errno=%d", errno);
+            break;
         }
-        pthread_mutex_lock(&mLock);
-    }
-    pthread_mutex_unlock(&mLock);
 
-    if (close(epoll_fd)) {
-        ALOGE("Failed to close epoll file descriptor\n");
-        return NULL;
+        for (int n = 0; n < nevents; ++n) {
+            if (events[n].data.ptr)
+                (*(void (*)(int, struct data *payload))events[n].data.ptr)(events[n].events,
+                                                                           &payload);
+        }
     }
+
+    ALOGI("exiting worker thread");
+error:
+    close(uevent_fd);
+
+    if (epoll_fd >= 0)
+        close(epoll_fd);
 
     return NULL;
 }
@@ -223,7 +275,6 @@ Dock::~Dock() {
     pthread_mutex_destroy(&mLock);
 }
 
-}  // namespace implementation
 }  // namespace dock
 }  // namespace nintendo
 }  // namespace hardware

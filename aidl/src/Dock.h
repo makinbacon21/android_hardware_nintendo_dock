@@ -26,11 +26,13 @@ using namespace std;
 #define MAX_EVENTS 5
 #define READ_SIZE 10
 
+#define UEVENT_MSG_LEN     2048
+#define UEVENT_MAX_EVENTS  64
+
 namespace android {
 namespace hardware {
 namespace nintendo {
 namespace dock {
-namespace implementation {
 
 using ::aidl::android::hardware::nintendo::dock::BnDock;
 using ::aidl::android::hardware::nintendo::dock::IDock;
@@ -62,7 +64,6 @@ struct Dock : public BnDock {
     PowerMode profile;
     pthread_t mPoll;
 };
-}  // namespace implementation
 }  // namespace dock
 }  // namespace nintendo
 }  // namespace hardware

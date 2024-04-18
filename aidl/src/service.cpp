@@ -24,7 +24,7 @@
 #include <utils/Log.h>
 #include "Dock.h"
 
-using android::hardware::nintendo::dock::implementation::Dock;
+using android::hardware::nintendo::dock::Dock;
 
 int main() {
     ABinderProcess_setThreadPoolMaxThreadCount(1);
