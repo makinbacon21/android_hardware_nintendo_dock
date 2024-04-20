@@ -31,6 +31,7 @@
 #include <map>
 #include <regex>
 
+#include "sysfs_utils.h"
 #include "Dock.h"
 
 using ndk::ScopedAStatus;
@@ -43,8 +44,79 @@ namespace dock {
 volatile bool polling;
 pthread_mutex_t mLock;
 
+/**
+ * 130|nx:/sys $ cat ./devices/system/cpu/cpufreq/policy0/                                                      
+ * affected_cpus                       related_cpus                        scaling_governor
+ * cpuinfo_cur_freq                    scaling_available_frequencies       scaling_max_freq
+ * cpuinfo_max_freq                    scaling_available_governors         scaling_min_freq
+ * cpuinfo_min_freq                    scaling_cur_freq                    scaling_setspeed
+ * cpuinfo_transition_latency          scaling_driver                      stats/
+ * 
+ * performance	Run the CPU at the maximum frequency, obtained from /sys/devices/system/cpu/cpuX/cpufreq/scaling_max_freq.
+ * powersave	Run the CPU at the minimum frequency, obtained from /sys/devices/system/cpu/cpuX/cpufreq/scaling_min_freq.
+ * userspace	Run the CPU at user specified frequencies, configurable via /sys/devices/system/cpu/cpuX/cpufreq/scaling_setspeed.
+ * ondemand	Scales the frequency dynamically according to current load. Jumps to the highest frequency and then possibly back off as the idle time increases.
+ * conservative	Scales the frequency dynamically according to current load. Scales the frequency more gradually than ondemand.
+ * schedutil	Scheduler-driven CPU frequency selection [4], [5].
+*/
+
+/**
+ * nx:/sys # cat ./devices/57000000.gpu/                                                                        
+ * aelpg_enable          elcg_enable           gpc_fs_mask           nvidia-gpu-power/     slcg_enable
+ * aelpg_param           elpg_enable           gpc_pg_mask           nvidia-gpu-v2-power/  subsystem/
+ * allow_all             emc3d_ratio           gpu_powered_on        nvidia-gpu-v2/        tpc_fs_mask
+ * blcg_enable           emulate_mode          iommu_group/          nvidia-gpu/           tpc_pg_mask
+ * comptag_mem_deduct    enable_3d_scaling     is_railgated          of_node/              tsg_timeslice_max_us
+ * counters              fbp_fs_mask           ldiv_slowdown_factor  power/                tsg_timeslice_min_us
+ * counters_reset        fbp_pg_mask           load                  ptimer_ref_freq       uevent
+ * devfreq/              fmax_at_vmin_safe     mig_mode_config       ptimer_scale_factor   user
+ * devfreq_dev/          force_idle            mig_mode_config_list  ptimer_src_freq
+ * driver/               freq_request          modalias              railgate_delay
+ * driver_override       golden_img_status     mscg_enable           railgate_enable
+
+*/
+
+int Dock::__setPowerMode(PowerMode mode) {
+    if(supportedModes.find(mode) == supportedModes.end()) {
+        ALOGE("Mode not defined! Check your config file.\n");
+    }
+    sysfs_write(cpufreqPath + "/scaling_max_freq", std::to_string(supportedModes[mode][0]));
+    sysfs_write(gpuDevfreqPath + "/max_freq", std::to_string(supportedModes[mode][1]));
+    profile = mode;
+    return 0;
+}
+
+int Dock::__clearForcedFreq() {
+    freqForced = false;
+    sysfs_write(cpufreqPath + "/scaling_governor", "schedutil");
+    sysfs_write(gpuDevfreqPath + "/governor", "nvhost_podgov");
+    return 0;
+}
+
 ScopedAStatus Dock::setPowerMode(PowerMode mode) {
-    profile = mode;  // TODO: impl
+    int ret;
+    __clearForcedFreq();
+
+    if (mode != profile) {
+        ret = __setPowerMode(mode);
+        if (ret) return ScopedAStatus::fromServiceSpecificError(ret);
+    }
+
+    return ScopedAStatus::ok();
+}
+
+ScopedAStatus Dock::forceModeFreq(PowerMode mode) {
+    int ret;
+    freqForced = true;
+
+    if (mode != profile) {
+        ret = __setPowerMode(mode);
+        if (ret) return ScopedAStatus::fromServiceSpecificError(ret);
+    }
+
+    sysfs_write(cpufreqPath + "/scaling_governor", "performance");
+    sysfs_write(gpuDevfreqPath + "/governor", "userspace");
+    sysfs_write(gpuDevfreqPath + "/userspace/set_freq", std::to_string(supportedModes[mode][1]));
     return ScopedAStatus::ok();
 }
 
@@ -136,8 +208,7 @@ static void uevent_event(uint32_t /*epevents*/, struct data *payload) {
     int n;
 
     n = uevent_kernel_multicast_recv(payload->uevent_fd, msg, UEVENT_MSG_LEN);
-    if (n <= 0)
-        return;
+    if (n <= 0) return;
     if (n >= UEVENT_MSG_LEN) /* overflow -- discard */
         return;
 
@@ -146,6 +217,7 @@ static void uevent_event(uint32_t /*epevents*/, struct data *payload) {
     cp = msg;
 
     while (*cp) {
+        ALOGI("uevent msg received: %s", msg);
         if (std::regex_match(cp, std::regex("(add)(.*)(-partner)"))) {
             ALOGI("USB partner event detected");
             ALOGI("Event: %s", cp);
@@ -160,7 +232,6 @@ static void uevent_event(uint32_t /*epevents*/, struct data *payload) {
         }
     }
 }
-
 
 /**
  * Loosely referencing https://suchprogramming.com/epoll-in-3-easy-steps/ and
@@ -204,16 +275,15 @@ void *pollWork(void *param) {
 
         nevents = epoll_wait(epoll_fd, events, UEVENT_MAX_EVENTS, -1);
         if (nevents == -1) {
-            if (errno == EINTR)
-                continue;
+            if (errno == EINTR) continue;
             ALOGE("usb epoll_wait failed; errno=%d", errno);
             break;
         }
 
         for (int n = 0; n < nevents; ++n) {
             if (events[n].data.ptr)
-                (*(void (*)(int, struct data *payload))events[n].data.ptr)(events[n].events,
-                                                                           &payload);
+                (*(void (*)(int, struct data *payload))events[n].data.ptr)(
+                    events[n].events, &payload);
         }
     }
 
@@ -221,8 +291,7 @@ void *pollWork(void *param) {
 error:
     close(uevent_fd);
 
-    if (epoll_fd >= 0)
-        close(epoll_fd);
+    if (epoll_fd >= 0) close(epoll_fd);
 
     return NULL;
 }

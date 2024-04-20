@@ -44,6 +44,8 @@ struct Dock : public BnDock {
 
     ::ndk::ScopedAStatus setPowerMode(PowerMode mode);
 
+    ::ndk::ScopedAStatus forceModeFreq(PowerMode mode);
+
     ::ndk::ScopedAStatus getPowerMode(PowerMode* _aidl_return);
 
     ::ndk::ScopedAStatus getAvailableModes(vector<PowerMode>* _aidl_return);
@@ -55,14 +57,22 @@ struct Dock : public BnDock {
     ::ndk::ScopedAStatus getDockedState(bool* _aidl_return);
 
   private:
+    int __setPowerMode(PowerMode mode);
+    int __clearForcedFreq();
+
     int parseConfig();
 
     string hardware;
     string sku;
     bool docked;
+    bool freqForced;
     map<PowerMode, vector<int32_t>> supportedModes;
     PowerMode profile;
     pthread_t mPoll;
+
+    const std::string cpufreqPath = "/sys/devices/system/cpu/cpufreq/policy0";
+    const std::string gpuTunablePath = "/sys/devices/57000000.gpu/";
+    const std::string gpuDevfreqPath = "/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq";
 };
 }  // namespace dock
 }  // namespace nintendo

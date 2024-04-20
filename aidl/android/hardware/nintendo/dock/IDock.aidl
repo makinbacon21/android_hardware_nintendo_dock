@@ -25,6 +25,8 @@ import android.hardware.nintendo.dock.PowerMode;
 interface IDock {
     void setPowerMode(in PowerMode mode);
 
+    void forceModeFreq(in PowerMode mode);
+
     PowerMode getPowerMode();
 
     PowerMode[] getAvailableModes();

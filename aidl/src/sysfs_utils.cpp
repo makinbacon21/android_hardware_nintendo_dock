@@ -19,11 +19,15 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <string>
+
+#include "sysfs_utils.h"
+
 #define MAX_LENGTH 128
 
-static int sysfs_read(char *path, char *out) {
+int sysfs_read(std::string path, char *out) {
     int ret;
-    int fd = open(path, O_RDONLY);
+    int fd = open(path.c_str(), O_RDONLY);
 
     if (fd < 0) {
         return -1;
@@ -43,9 +47,9 @@ static int sysfs_read(char *path, char *out) {
 }
 
 [[maybe_unused]]
-static int sysfs_read_int(char *path, int *out) {
+int sysfs_read_int(std::string path, int *out) {
     char buf[128];
-    int ret = sysfs_read(path, buf);
+    int ret = sysfs_read(path.c_str(), buf);
     if(ret) {
         return ret;
     }
@@ -55,17 +59,17 @@ static int sysfs_read_int(char *path, int *out) {
     return 0;
 }
 
-static int sysfs_write_size(char *path, char *buf, size_t size) {
+int sysfs_write_size(std::string path, std::string buf, size_t size) {
     int ret;
-    int fd = open(path, O_WRONLY);
+    int fd = open(path.c_str(), O_WRONLY);
 
     if (fd < 0) {
         return -1;
     }
 
-    if (strlen(buf) > size) buf[size - 1] = '\0';
+    if (buf.length() > size) buf[size - 1] = '\0';
 
-    ret = write(fd, buf, size);
+    ret = write(fd, buf.c_str(), size);
     if (ret) {
         return -2;
     }
@@ -78,6 +82,6 @@ static int sysfs_write_size(char *path, char *buf, size_t size) {
 }
 
 [[maybe_unused]]
-static int sysfs_write(char *path, char *buf) {
+int sysfs_write(std::string path, std::string buf) {
     return sysfs_write_size(path, buf, MAX_LENGTH);
 }
