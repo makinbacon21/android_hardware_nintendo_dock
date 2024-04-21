@@ -242,8 +242,10 @@ static void uevent_event(uint32_t /*epevents*/, struct data *payload) {
 
             if(out) {
                 payload->dock->setPowerMode(PowerMode::MAX_PERF);
+                docked = true;
             } else {
                 payload->dock->setPowerMode(PowerMode::ECO);
+                docked = false;
             }
             
             break;
