@@ -8,6 +8,7 @@ NvCPL is a proprietary, bloated, and closed-source set of services that is less 
 
 ## Anatomy
 
-- Polling thread using `epoll` to query charging (`power_supply`) state
+- Polling thread using `epoll` and `uevent` to query USB state yoinked from IUsb default impl
 - Profile switcher based on AIDL interface
-- (Next) Sysfs knob controls based on profiles
+- Sysfs knob controls based on profiles
+- (Next) display hotplug handling
