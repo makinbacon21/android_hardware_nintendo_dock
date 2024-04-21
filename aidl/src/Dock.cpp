@@ -100,7 +100,9 @@ int Dock::__clearForcedFreq() {
 
 ScopedAStatus Dock::setPowerMode(PowerMode mode) {
     int ret;
-    __clearForcedFreq();
+
+    if(freqForced)
+        __clearForcedFreq();
 
     if (mode != profile) {
         ret = __setPowerMode(mode);
