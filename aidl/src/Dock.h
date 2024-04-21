@@ -71,8 +71,7 @@ struct Dock : public BnDock {
     pthread_t mPoll;
 
     const std::string cpufreqPath = "/sys/devices/system/cpu/cpufreq/policy0";
-    const std::string gpuTunablePath = "/sys/devices/57000000.gpu/";
-    const std::string gpuDevfreqPath = "/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq";
+    const std::string gpuDevfreqPath = "/sys/devices/57000000.gpu/devfreq/57000000.gpu";
 };
 }  // namespace dock
 }  // namespace nintendo

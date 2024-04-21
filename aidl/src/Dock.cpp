@@ -80,7 +80,10 @@ int Dock::__setPowerMode(PowerMode mode) {
     if(supportedModes.find(mode) == supportedModes.end()) {
         ALOGE("Mode not defined! Check your config file.\n");
     }
+
+    ALOGI("Setting cpu max freq <%d>\n", supportedModes[mode][0]);
     sysfs_write(cpufreqPath + "/scaling_max_freq", std::to_string(supportedModes[mode][0]));
+    ALOGI("Setting gpu max freq <%d>\n", supportedModes[mode][1]);
     sysfs_write(gpuDevfreqPath + "/max_freq", std::to_string(supportedModes[mode][1]));
     profile = mode;
     return 0;
@@ -88,7 +91,9 @@ int Dock::__setPowerMode(PowerMode mode) {
 
 int Dock::__clearForcedFreq() {
     freqForced = false;
+    ALOGI("Resetting cpufreq gov to schedutil\n");
     sysfs_write(cpufreqPath + "/scaling_governor", "schedutil");
+    ALOGI("Resetting gpu devfreq gov to nvhost_podgov\n");
     sysfs_write(gpuDevfreqPath + "/governor", "nvhost_podgov");
     return 0;
 }
@@ -113,6 +118,8 @@ ScopedAStatus Dock::forceModeFreq(PowerMode mode) {
         ret = __setPowerMode(mode);
         if (ret) return ScopedAStatus::fromServiceSpecificError(ret);
     }
+
+    ALOGI("Forcing frequency!\n");
 
     sysfs_write(cpufreqPath + "/scaling_governor", "performance");
     sysfs_write(gpuDevfreqPath + "/governor", "userspace");
@@ -188,10 +195,14 @@ int Dock::parseConfig() {
             index, std::vector<int32_t>()));
 
         supportedModes[index].push_back(stoi(tokens[1]));
-        supportedModes[index].push_back(stoi(tokens[2]));
+        supportedModes[index].push_back(stoi(tokens[2]) * 1000); // GPU freqs require conversion
 
-        if (tokens.size() == 4)  // emc supported var???? prolly not
-            supportedModes[index].push_back(stoi(tokens[4]));
+        ALOGI("Added profile idx <%d>, cpu freq <%d>, gpu freq <%d>\n", stoi(tokens[0]), stoi(tokens[1]), stoi(tokens[2]));
+
+        if (tokens.size() == 4) {  // emc supported var???? prolly not
+            supportedModes[index].push_back(stoi(tokens[3]));
+            ALOGI(".. emc freq <%d>\n", stoi(tokens[3]));
+        }
     }
 
     return 0;
@@ -203,6 +214,7 @@ struct data {
 };
 
 static void uevent_event(uint32_t /*epevents*/, struct data *payload) {
+    const std::string usbExtconPath = "/sys/devices/usb_cd/extcon/extcon3";
     char msg[UEVENT_MSG_LEN + 2];
     char *cp;
     int n;
@@ -217,17 +229,23 @@ static void uevent_event(uint32_t /*epevents*/, struct data *payload) {
     cp = msg;
 
     while (*cp) {
-        ALOGI("uevent msg received: %s", msg);
-        if (std::regex_match(cp, std::regex("(add)(.*)(-partner)"))) {
-            ALOGI("USB partner event detected");
-            ALOGI("Event: %s", cp);
-            /* do shit */
-        } else if (!strncmp(cp, "DEVTYPE=typec_", strlen("DEVTYPE=typec_"))) {
-            ALOGI("Other USB event detected");
-            ALOGI("Event: %s", cp);
-            /* do shit */
+        if (std::regex_match(cp, std::regex(".*usb_cd.*"))) {
+            ALOGI("USB-C event detected\n");
+
+            int out;
+            if(sysfs_read_int(usbExtconPath + "/cable.0/state", &out)) {
+                ALOGE("ERROR: Failed to read cable state!\n");
+                break;
+            }
+
+            if(out) {
+                payload->dock->setPowerMode(PowerMode::MAX_PERF);
+            } else {
+                payload->dock->setPowerMode(PowerMode::ECO);
+            }
+            
             break;
-        } /* advance to after the next \0 */
+        }
         while (*cp++) {
         }
     }
