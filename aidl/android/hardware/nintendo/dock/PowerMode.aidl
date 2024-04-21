@@ -24,9 +24,9 @@ package android.hardware.nintendo.dock;
 //@VintfStability
 @Backing(type="byte")
 enum PowerMode {
-    MAX_PERF = 0,
-    PERF = 1,
-    NV_STOCK = 2,
-    HOS_STOCK = 3,
-    ECO = 4,
+    MAX_PERF = 0,  /* Max kernel-supported clocks for platform */
+    PERF = 1,      /* Minor clock boost akin to GPU power boosting */
+    NV_STOCK = 2,  /* Stock SoC clocks */
+    HOS_STOCK = 3, /* Stock HOS clocks */
+    ECO = 4,       /* "Eco" mode, with massive downclock for battery */
 }
