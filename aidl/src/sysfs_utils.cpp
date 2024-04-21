@@ -14,10 +14,16 @@
  * limitations under the License.
  */
 
+#include <android-base/logging.h>
+
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#include <errno.h>
+
+#include <utils/Log.h>
 
 #include <string>
 
@@ -30,16 +36,19 @@ int sysfs_read(std::string path, char *out) {
     int fd = open(path.c_str(), O_RDONLY);
 
     if (fd < 0) {
+        ALOGE("Failed to open!\n");
         return -1;
     }
 
     ret = read(fd, out, MAX_LENGTH - 1);
-    if (ret) {
+    if (ret < 0) {
+        ALOGE("Failed to read!\n");
         return -2;
     }
 
     out[MAX_LENGTH - 1] = '\0';
     if (close(fd)) {
+        ALOGE("Failed to close!\n");
         return -3;
     }
 
@@ -64,17 +73,20 @@ int sysfs_write_size(std::string path, std::string buf, size_t size) {
     int fd = open(path.c_str(), O_WRONLY);
 
     if (fd < 0) {
+        ALOGE("Failed to open! %s %s\n", path.c_str(), strerror(errno));
         return -1;
     }
 
     if (buf.length() > size) buf[size - 1] = '\0';
 
     ret = write(fd, buf.c_str(), size);
-    if (ret) {
+    if (ret < 0) {
+        ALOGE("Failed to write!\n");
         return -2;
     }
 
     if (close(fd)) {
+        ALOGE("Failed to close!\n");
         return -3;
     }
 
